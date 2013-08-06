@@ -93,8 +93,8 @@ import signal
 from time import sleep
 
 from mininet.cli import CLI
-from mininet.log import info, error, debug, output
-from mininet.node import Host, OVSKernelSwitch, Controller
+from mininet.log import info, error, warn, debug, output
+from mininet.node import Node, Host, Switch, OVSKernelSwitch, Controller, Dummy
 from mininet.link import Link, Intf
 from mininet.util import quietRun, fixLimits, numCores, ensureRoot
 from mininet.util import macColonHex, ipStr, ipParse, netParse, ipAdd
@@ -151,6 +151,7 @@ class Mininet( object ):
         self.hosts = []
         self.switches = []
         self.controllers = []
+        self.dummies = []
 
         self.nameToNode = {}  # name to Node (Host/Switch) objects
 
@@ -216,6 +217,16 @@ class Mininet( object ):
             self.nameToNode[ name ] = controller_new
         return controller_new
 
+    def addDummy( self, name='dummy', cls=Dummy, **params ):
+        """Add dummy.
+           dummy: Dummy class"""
+        if not cls:
+            cls = Dummy                  # Any other possible classes?
+        dummy_new = cls( name, **params )
+        self.dummies.append( dummy_new ) # Dunno if we need more dummies.
+        self.nameToNode[ name ] = dummy_new
+        return dummy_new
+
     # BL: is this better than just using nameToNode[] ?
     # Should it have a better name?
     def getNodeByName( self, *args ):
@@ -275,16 +286,19 @@ class Mininet( object ):
 
         info( '*** Creating network\n' )
 
+        info( '\n*** Adding dummy:\n' )
+        self.addDummy()
+
         if not self.controllers:
             # Add a default controller
-            info( '*** Adding controller\n' )
+            info( '\n*** Adding controller:\n' )
             classes = self.controller
             if type( classes ) is not list:
                 classes = [ classes ]
             for i, cls in enumerate( classes ):
                 self.addController( 'c%d' % i, cls )
 
-        info( '*** Adding hosts:\n' )
+        info( '\n*** Adding hosts:\n' )
         for hostName in topo.hosts():
             self.addHost( hostName, **topo.nodeInfo( hostName ) )
             info( hostName + ' ' )
@@ -327,6 +341,7 @@ class Mininet( object ):
         "Start a terminal for each node."
         info( "*** Running terms on %s\n" % os.environ[ 'DISPLAY' ] )
         cleanUpScreens()
+        self.terms += makeTerms( self.dummies, 'dummy' )
         self.terms += makeTerms( self.controllers, 'controller' )
         self.terms += makeTerms( self.switches, 'switch' )
         self.terms += makeTerms( self.hosts, 'host' )
@@ -355,6 +370,7 @@ class Mininet( object ):
         for switch in self.switches:
             info( switch.name + ' ')
             switch.start( self.controllers )
+            #zzz
         info( '\n' )
 
     def stop( self ):
@@ -376,6 +392,11 @@ class Mininet( object ):
         for controller in self.controllers:
             info( controller.name + ' ' )
             controller.stop()
+        info( '\n' )
+        info( '*** Stopping %i dummies\n' % len(self.dummies) )
+        for dummy in self.dummies:
+            info( dummy.name + ' ' )
+            dummy.terminate()
         info( '\n*** Done\n' )
 
     def run( self, test, *args, **kwargs ):
@@ -539,6 +560,157 @@ class Mininet( object ):
            returns: ploss packet loss percentage"""
         hosts = [ self.hosts[ 0 ], self.hosts[ 1 ] ]
         return self.pingFull( hosts=hosts )
+
+    # ZZZ moveLink
+    debug_flag1 = True
+    debug_flag2 = False
+    debug_flag3 = False
+
+    def moveLink( self, node1, node2, intf1_name, intf2_name ):
+        if self.debug_flag1:
+            args = (node1, node2, intf1_name, intf2_name)
+            print "EXEC: moveLink(%s, %s, %s, %s):" % args
+        assert isinstance(node1, Host) #Node)
+        assert isinstance(node2, Switch) or isinstance(node2, Dummy) #Node)
+        assert intf1_name in node1.nameToIntf
+        assert intf2_name in node2.nameToUnusedPorts
+        if self.debug_flag2:    #Make debug_flag false when not testing.
+            intf1 = node1.nameToIntf[intf1_name]
+            if intf1.link.intf1 == intf1:
+                intf1_other = intf1.link.intf2
+            elif intf1.link.intf2 == intf2:
+                intf1_other = intf1.link.intf1
+            node1_other = intf1_other.node
+            intf1_name_other = intf1_other.name
+            node1_other.nameToUnusedPorts[intf1_name_other] = None
+            del node2.nameToUnusedPorts[intf2_name]
+            return
+
+        # TODO: Fix below~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~``
+        # CODE HERE!
+        if self.debug_flag3:
+            node1_intf = node1.nameToIntf[intf1_name]
+            if node1_intf.link.intf1==node1_intf:
+                predest_intf=node1_intf.link.intf2
+            else:
+                predest_intf=node1_intf.link.intf1
+            #TODO:Figure out the present switch-intf name and the port,move them to nameToUnunsedport
+            #     And move the intf object to node2
+            for name in predest_intf.node.nameToIntf:
+                if predest_intf == predest_intf.node.nameToIntf[name]:
+                    predest_intf_name=name
+                    break 
+            predest_intf.node.nameToUnusedPorts[predest_intf_name]=predest_intf.node.ports[predest_intf]
+            from mininet.util import moveIntf
+            moveIntf(predest_intf, node2)
+            #TODO:Put the intf previously moved to node2 in the dicts, that is, replace the dummy_intf
+            node2.nameToIntf[intf2_name] = predest_intf
+            return
+
+        print "FFFFFFFFFFFFFFFFFFFF"
+        intf1 = node1.nameToIntf[intf1_name]
+        intf1_other = None
+        assert intf1.link != None
+        assert intf1.link.intf1 == intf1 or intf1.link.intf2 == intf1
+        assert intf1.node == node1
+        if intf1.link.intf1 == intf1:
+            intf1_other = intf1.link.intf2
+        elif intf1.link.intf2 == intf1:
+            intf1_other = intf1.link.intf1
+        node1_other = intf1_other.node
+        intf1_name_other = intf1_other.name   # These three must be saved.
+        intf1_port_other = node1_other.ports[intf1_other]
+
+        # Special case: Node already connected to other node.
+        if node1_other == node2 and intf1_name_other == intf2_name:
+            warn('connection already established\n')
+            return
+
+        del node1_other.intfs[ intf1_port_other ]
+        del node1_other.ports[ intf1_other ]
+        del node1_other.nameToIntf[ intf1_name_other ]
+        node1_other.nameToUnusedPorts[ intf1_name_other ] = intf1_port_other
+
+        intf2_port = node2.nameToUnusedPorts[ intf2_name ]
+        intf2 = intf1_other
+        intf2.rename(intf2_name)
+        #intf2.node = node2
+        node2.moveIntfFrom(intf2, node1_other, intf2_port)
+        intf2.node = node2
+        del node2.nameToUnusedPorts[ intf2_name ]
+
+    def removeLink( self, node, intf_name ):
+        if self.debug_flag1:
+            args = (node, intf_name)
+            print "EXEC: removeLink(%s, %s):" % args
+        assert isinstance(node, Host) #Node)
+        assert intf_name in node.nameToIntf
+
+        dummy = self.nameToNode.get("dummy", None)
+        if dummy is None:
+            error('dummy node does not exist\n')
+            return
+        assert isinstance(dummy, Dummy)
+
+        # Special case: Node already connected to dummy.
+        intf = node.nameToIntf[intf_name]
+        assert intf.link != None
+        assert intf.link.intf1 == intf or intf.link.intf2 == intf
+        assert intf.node != dummy
+        if intf.link.intf1.node == dummy or intf.link.intf2.node == dummy:
+            warn('intf %s of %s already removed\n' % (intf_name, node.name))
+            return
+
+        unused = dummy.nameToUnusedPorts
+        if len(unused) == 0:
+            dummy_intf_port = dummy.newPort()
+            dummy_intf_name = 'dummy-eth' + str(dummy_intf_port)
+            unused[dummy_intf_name] = dummy_intf_port
+        else:
+            dummy_intf_name = min(unused, key=unused.get)
+
+        self.moveLink(node, dummy, intf_name, dummy_intf_name)
+
+    def swapLink( self, node1, node2, intf1_name, intf2_name ):
+        if self.debug_flag1:
+            args = (node1, node2, intf1_name, intf2_name)
+            print "EXEC: swapLink(%s, %s, %s, %s):" % args
+        assert isinstance(node1, Host) #Node)
+        assert isinstance(node2, Host) #Node)
+        assert intf1_name in node1.nameToIntf
+        assert intf2_name in node2.nameToIntf
+
+        intf1 = node1.nameToIntf[intf1_name]
+        intf1_other = None
+        assert intf1.link != None
+        assert intf1.link.intf1 == intf1 or intf1.link.intf2 == intf1
+        assert intf1.node == node1
+        if intf1.link.intf1 == intf1:
+            intf1_other = intf1.link.intf2
+        elif intf1.link.intf2 == intf1:
+            intf1_other = intf1.link.intf1
+        node1_other = intf1_other.node
+        intf1_name_other = intf1_other.name   # These two must be saved.
+
+        intf2 = node2.nameToIntf[intf2_name]
+        intf2_other = None
+        assert intf2.link != None
+        assert intf2.link.intf1 == intf2 or intf2.link.intf2 == intf2
+        assert intf2.node == node2
+        if intf2.link.intf1 == intf2:
+            intf2_other = intf2.link.intf2
+        elif intf2.link.intf2 == intf2:
+            intf2_other = intf2.link.intf1
+        node2_other = intf2_other.node
+        intf2_name_other = intf2_other.name   # These two must be saved.
+
+        # CHECK: Require special case?
+
+        self.removeLink(node1, intf1_name)
+        self.removeLink(node2, intf2_name)
+        self.moveLink(node1, node2_other, intf1_name, intf2_name_other)
+        self.moveLink(node2, node1_other, intf2_name, intf1_name_other)
+
 
     @staticmethod
     def _parseIperf( iperfOutput ):

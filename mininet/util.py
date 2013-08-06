@@ -171,13 +171,16 @@ def retry( retries, delaySecs, fn, *args, **keywords ):
         error( "*** gave up after %i retries\n" % tries )
         exit( 1 )
 
-def moveIntfNoRetry( intf, node, printError=False ):
+def moveIntfNoRetry( intf, node, intf_node=None, printError=False ):
     """Move interface to node, without retrying.
        intf: string, interface
        node: Node object
        printError: if true, print error"""
     cmd = 'ip link set ' + intf + ' netns ' + repr( node.pid )
-    quietRun( cmd )
+    if intf_node is None:
+        quietRun( cmd )
+    else:
+        intf_node.cmd( cmd )
     links = node.cmd( 'ip link show' )
     if not ( ' %s:' % intf ) in links:
         if printError:
@@ -186,12 +189,15 @@ def moveIntfNoRetry( intf, node, printError=False ):
         return False
     return True
 
-def moveIntf( intf, node, printError=False, retries=3, delaySecs=0.001 ):
+def moveIntf( intf, node, intf_node=None, printError=False, retries=3, 
+              delaySecs=0.001 ):
     """Move interface to node, retrying on failure.
        intf: string, interface
        node: Node object
+       intf_node: intf-containing Node object
        printError: if true, print error"""
-    retry( retries, delaySecs, moveIntfNoRetry, intf, node, printError )
+    retry( retries, delaySecs, moveIntfNoRetry, intf, node, intf_node, 
+           printError )
 
 # Support for dumping network
 
@@ -216,7 +222,7 @@ def dumpNodeConnections( nodes ):
 
 def dumpNetConnections( net ):
     "Dump connections in network"
-    nodes = net.controllers + net.switches + net.hosts
+    nodes = net.controllers + net.switches + net.hosts + net.dummies
     dumpNodeConnections( nodes )
 
 # IP and Mac address formatting and parsing

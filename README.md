@@ -1,3 +1,7 @@
+In this version, we add the command rm and mv in the CLI
+
+
+
 
 Mininet: Rapid Prototyping for Software Defined Networks
 ========================================================

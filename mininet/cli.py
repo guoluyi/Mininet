@@ -39,11 +39,12 @@ from mininet.util import quietRun, isShellBuiltin, dumpNodeConnections
 class CLI( Cmd ):
     "Simple command-line interface to talk to nodes."
 
-    prompt = 'mininet> '
+    prompt = 'mikinet> '
 
     def __init__( self, mininet, stdin=sys.stdin, script=None ):
         self.mn = mininet
         self.nodelist = self.mn.controllers + self.mn.switches + self.mn.hosts
+        self.nodelist += self.mn.dummies
         self.nodemap = {}  # map names to Node objects
         for node in self.nodelist:
             self.nodemap[ node.name ] = node
@@ -155,6 +156,135 @@ class CLI( Cmd ):
     def do_pingpairfull( self, _line ):
         "Ping between first two hosts, returns all ping results."
         self.mn.pingPairFull()
+
+    # go_mv starts here!
+
+    def _check_host( self, node_name, intf_name ):
+        node = self.nodemap.get(node_name, None)
+        err = False
+        if node is None:
+            err = True
+            error( "node '%s' not in network\n" % node_name )
+        elif intf_name is None:
+            intf = node.defaultIntf()
+            if intf is None:
+                err = True
+                error( "%s has no default intf\n" % node_name )
+            else:
+                intf_name = intf.name
+        elif intf_name not in node.nameToIntf:
+            err = True
+            error( "%s has no intf '%s'\n" % (node_name, intf_name))
+        return (err, node, intf_name)
+
+    def _check_switch( self, node_name, intf_name ):
+        node = self.nodemap.get(node_name, None)
+        err = False
+        if node is None:
+            err = True
+            error( "node '%s' not in network\n" % node_name )
+        elif intf_name is None:
+            unused = node.nameToUnusedPorts
+            if len(unused) == 0:
+                err = True
+                error( "%s has no unused ports\n" % node_name )
+            else:
+                intf_name = min(unused, key=unused.get)
+        elif intf_name not in node.nameToUnusedPorts:
+            err = True
+            if intf_name not in node.nameToIntf:
+                error( "%s has no intf '%s'\n" % (node_name, intf_name))
+            else:
+                error( "%s's %s is occupied\n" % (node_name, intf_name))
+        return (err, node, intf_name)
+
+    def do_mv( self, line ):
+        "Move host to connect to a specified other switch."
+        args = line.split()
+        node1_name = None
+        node2_name = None
+        intf1_name = None
+        intf2_name = None
+
+        if len(args) == 2:
+            node1_name = args[0]
+            node2_name = args[1]
+        elif len(args) == 3:
+            node1_name = args[0]
+            if args[1] not in self.nodemap and args[2] in self.nodemap:
+                intf1_name = args[1]
+                node2_name = args[2]
+            else:
+                node2_name = args[1]
+                intf2_name = args[2]
+        elif len(args) == 4:
+            node1_name = args[0]
+            intf1_name = args[1]
+            node2_name = args[2]
+            intf2_name = args[3]
+        else:
+            error('invalid number of args: mv src [src-intf] dst [dst-intf]\n')
+            return
+
+        err1, node1, intf1_name = self._check_host(node1_name, intf1_name)
+        err2, node2, intf2_name = self._check_switch(node2_name, intf2_name)
+
+        if not err1 and not err2:
+            self.mn.moveLink(node1, node2, intf1_name, intf2_name)
+
+    def do_rm( self, line ):
+        "Disconnect a host from a switch. rm host [host-intf]"
+        args = line.split()
+        host_name = None
+        intf_name = None
+
+        if len(args) == 1:
+            host_name = args[0]
+        elif len(args) == 2:
+            host_name = args[0]
+            intf_name = args[1]
+        else:
+            error('invalid number of args: rm host [host-intf]\n')
+            return
+
+        err, host, intf_name = self._check_host(host_name, intf_name)
+
+        if not err:
+            self.mn.removeLink(host, intf_name)
+
+    def do_swap( self, line ):
+        "Swap connections between two nodes."
+        args = line.split()
+        node1_name = None
+        node2_name = None
+        intf1_name = None
+        intf2_name = None
+
+        if len(args) == 2:
+            node1_name = args[0]
+            node2_name = args[1]
+        elif len(args) == 3:
+            node1_name = args[0]
+            if args[1] not in self.nodemap and args[2] in self.nodemap:
+                intf1_name = args[1]
+                node2_name = args[2]
+            else:
+                node2_name = args[1]
+                intf2_name = args[2]
+        elif len(args) == 4:
+            node1_name = args[0]
+            intf1_name = args[1]
+            node2_name = args[2]
+            intf2_name = args[3]
+        else:
+            error('invalid number of args: swap n1 [n1-intf] n2 [n2-intf]\n')
+            return
+
+        err1, node1, intf1_name = self._check_host(node1_name, intf1_name)
+        err2, node2, intf2_name = self._check_host(node2_name, intf2_name)
+
+        if not err1 and not err2:
+            self.mn.swapLink(node1, node2, intf1_name, intf2_name)
 
     def do_iperf( self, line ):
         "Simple iperf TCP test between two (optionally specified) hosts."
